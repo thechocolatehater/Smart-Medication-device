@@ -1,0 +1,89 @@
+file,text,used_for
+0001,Container one. Please check the label.,"Scan result for slot 1. When you know the medicine, change it to: Container one: <medicine name>. Please check the label."
+0002,Container two. Please check the label.,"Scan result for slot 2. When you know the medicine, change it to: Container two: <medicine name>. Please check the label."
+0003,Container three. Please check the label.,"Scan result for slot 3. When you know the medicine, change it to: Container three: <medicine name>. Please check the label."
+0004,Container four. Please check the label.,"Scan result for slot 4. When you know the medicine, change it to: Container four: <medicine name>. Please check the label."
+0005,Container five. Please check the label.,"Scan result for slot 5. When you know the medicine, change it to: Container five: <medicine name>. Please check the label."
+0006,Container six. Please check the label.,"Scan result for slot 6. When you know the medicine, change it to: Container six: <medicine name>. Please check the label."
+0007,Container seven. Please check the label.,"Scan result for slot 7. When you know the medicine, change it to: Container seven: <medicine name>. Please check the label."
+0008,Container eight. Please check the label.,"Scan result for slot 8. When you know the medicine, change it to: Container eight: <medicine name>. Please check the label."
+0009,Container nine. Please check the label.,"Scan result for slot 9. When you know the medicine, change it to: Container nine: <medicine name>. Please check the label."
+0010,Container ten. Please check the label.,"Scan result for slot 10. When you know the medicine, change it to: Container ten: <medicine name>. Please check the label."
+0011,Unregistered container.,Unknown tag
+0012,Reminder: please check your medicine schedule.,Reminder (the device then plays 0018 + the container number)
+0013,Schedule expired. Ask a caregiver.,Record past its valid-until date
+0014,Time not set. Ask a caregiver.,Clock lost power
+0015,Reminder acknowledged.,Acknowledge button (D6)
+0016,The time is,Next due / time button (D7)
+0017,Next reminder,D7
+0018,Container,D7 and reminders
+0019,at,D7
+0020,A.M.,Time (written A.M. so the voice says 'ay em')
+0021,P.M.,Time (written P.M. so the voice says 'pee em')
+0022,o'clock,"Whole hours, e.g. eight o'clock"
+0023,oh,"Minutes 1-9, e.g. seven oh five"
+0024,No more reminders today.,D7
+0025,Caregiver mode.,Hold D8 for 5 seconds
+0026,Saved.,Caregiver mode
+0027,Already registered.,Caregiver mode: duplicate tag
+0028,Leaving caregiver mode.,Caregiver mode: exit
+0100,zero,Number 0 (file = 100 + number)
+0101,one,Number 1 (file = 100 + number)
+0102,two,Number 2 (file = 100 + number)
+0103,three,Number 3 (file = 100 + number)
+0104,four,Number 4 (file = 100 + number)
+0105,five,Number 5 (file = 100 + number)
+0106,six,Number 6 (file = 100 + number)
+0107,seven,Number 7 (file = 100 + number)
+0108,eight,Number 8 (file = 100 + number)
+0109,nine,Number 9 (file = 100 + number)
+0110,ten,Number 10 (file = 100 + number)
+0111,eleven,Number 11 (file = 100 + number)
+0112,twelve,Number 12 (file = 100 + number)
+0113,thirteen,Number 13 (file = 100 + number)
+0114,fourteen,Number 14 (file = 100 + number)
+0115,fifteen,Number 15 (file = 100 + number)
+0116,sixteen,Number 16 (file = 100 + number)
+0117,seventeen,Number 17 (file = 100 + number)
+0118,eighteen,Number 18 (file = 100 + number)
+0119,nineteen,Number 19 (file = 100 + number)
+0120,twenty,Number 20 (file = 100 + number)
+0121,twenty-one,Number 21 (file = 100 + number)
+0122,twenty-two,Number 22 (file = 100 + number)
+0123,twenty-three,Number 23 (file = 100 + number)
+0124,twenty-four,Number 24 (file = 100 + number)
+0125,twenty-five,Number 25 (file = 100 + number)
+0126,twenty-six,Number 26 (file = 100 + number)
+0127,twenty-seven,Number 27 (file = 100 + number)
+0128,twenty-eight,Number 28 (file = 100 + number)
+0129,twenty-nine,Number 29 (file = 100 + number)
+0130,thirty,Number 30 (file = 100 + number)
+0131,thirty-one,Number 31 (file = 100 + number)
+0132,thirty-two,Number 32 (file = 100 + number)
+0133,thirty-three,Number 33 (file = 100 + number)
+0134,thirty-four,Number 34 (file = 100 + number)
+0135,thirty-five,Number 35 (file = 100 + number)
+0136,thirty-six,Number 36 (file = 100 + number)
+0137,thirty-seven,Number 37 (file = 100 + number)
+0138,thirty-eight,Number 38 (file = 100 + number)
+0139,thirty-nine,Number 39 (file = 100 + number)
+0140,forty,Number 40 (file = 100 + number)
+0141,forty-one,Number 41 (file = 100 + number)
+0142,forty-two,Number 42 (file = 100 + number)
+0143,forty-three,Number 43 (file = 100 + number)
+0144,forty-four,Number 44 (file = 100 + number)
+0145,forty-five,Number 45 (file = 100 + number)
+0146,forty-six,Number 46 (file = 100 + number)
+0147,forty-seven,Number 47 (file = 100 + number)
+0148,forty-eight,Number 48 (file = 100 + number)
+0149,forty-nine,Number 49 (file = 100 + number)
+0150,fifty,Number 50 (file = 100 + number)
+0151,fifty-one,Number 51 (file = 100 + number)
+0152,fifty-two,Number 52 (file = 100 + number)
+0153,fifty-three,Number 53 (file = 100 + number)
+0154,fifty-four,Number 54 (file = 100 + number)
+0155,fifty-five,Number 55 (file = 100 + number)
+0156,fifty-six,Number 56 (file = 100 + number)
+0157,fifty-seven,Number 57 (file = 100 + number)
+0158,fifty-eight,Number 58 (file = 100 + number)
+0159,fifty-nine,Number 59 (file = 100 + number)
