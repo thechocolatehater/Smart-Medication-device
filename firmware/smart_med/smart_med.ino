@@ -1,9 +1,12 @@
-// smart_med.ino - Day 2 code skeleton
-// State machine driven by fake inputs typed into the Serial Monitor.
-// No real hardware is needed yet: speech, buzzer and log are printed as
-// [SAY], [BUZZ] and [LOG] lines. Serial Monitor: 9600 baud, "Newline".
+// smart_med.ino - Day 3: medicine records in EEPROM, UID lookup and the
+// dose scheduler, still driven by fake inputs typed into the Serial Monitor.
+// Speech, buzzer and log are printed as [SAY], [BUZZ] and [LOG] lines.
+// Serial Monitor: 9600 baud, "Newline".
 
 #include "pins.h"
+#include "records.h"
+#include "scheduler.h"
+#include "selftest.h"
 
 // ---------------- States ----------------
 enum State : uint8_t { IDLE, SCAN_RESULT, REMINDING, CAREGIVER };
@@ -19,40 +22,25 @@ const unsigned long REMIND_REPEAT_MS = 300000UL;  // repeat a reminder every 5 m
 const uint8_t       REMIND_MAX       = 3;         // after 3 announcements with no Ack -> missed
 const unsigned long CARE_TIMEOUT_MS  = 60000UL;   // leave caregiver mode after 60 s of no commands
 
-// ---------------- Fake medicine records (EEPROM comes on Day 3) ----------------
-const uint8_t MAX_UID = 7;
-struct Record {
-  uint8_t  slot;          // container number 1-10
-  uint8_t  uidLen;        // 4 or 7
-  uint8_t  uid[MAX_UID];
-  uint16_t doseMin;       // one dose time, minutes after midnight
-};
-
-Record records[] = {
-  { 1, 4, { 0x04, 0xA1, 0xB2, 0xC3 },                   8 * 60 },       // 8:00 AM
-  { 2, 7, { 0x04, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66 }, 13 * 60 + 30 },  // 1:30 PM
-  { 3, 4, { 0xDE, 0xAD, 0xBE, 0xEF },                   19 * 60 + 5 },   // 7:05 PM
-};
-const char* const NAMES[] = { "Paracetamol", "Metformin", "Amlodipine" };
-const uint8_t RECORD_COUNT = sizeof(records) / sizeof(records[0]);
-
 // ---------------- Scan memory ----------------
 uint8_t lastUid[MAX_UID];
 uint8_t lastUidLen = 0;
 unsigned long lastScanMs = 0;
 int8_t lastResultIdx = -2;        // -1 = unknown tag, -2 = nothing scanned yet
+MedRecord lastRec;                // copy of the record that was scanned
 
-// ---------------- Fake clock ----------------
+// ---------------- Fake clock and calendar (the DS3231 replaces these on Day 8) ----------------
 bool timeSet = false;
+bool dateSet = false;
 uint16_t clockMin = 0;            // minutes after midnight
+uint8_t dateY = 0, dateM = 0, dateD = 0;   // dateY = year - 2000
 unsigned long lastMinuteMs = 0;
 uint16_t lastCheckedMin = 0xFFFF;
 
 // ---------------- Reminder ----------------
-int8_t remindIdx = -1;            // which record is being reminded
+DueDose cur;                      // the dose being announced
 uint8_t remindCount = 0;          // announcements so far
 unsigned long lastRemindMs = 0;
-int8_t pendingIdx = -1;           // dose that fell due while we were busy
 
 // ---------------- Serial line buffer ----------------
 char lineBuf[32];
@@ -61,6 +49,9 @@ uint8_t lineLen = 0;
 // =====================================================================
 // Small helpers
 // =====================================================================
+bool clockReady() { return timeSet && dateSet; }      // reminders need both
+uint16_t today() { return dateKey(dateY, dateM, dateD); }
+
 void changeState(State next) {
   Serial.print(F("[STATE] "));
   Serial.print(STATE_NAMES[state]);
@@ -74,44 +65,33 @@ void changeState(State next) {
   }
 }
 
-void printTime(uint16_t m) {      // prints 7:05 PM style
-  uint8_t h = m / 60;
-  uint8_t mm = m % 60;
-  uint8_t h12 = h % 12;
-  if (h12 == 0) h12 = 12;
-  Serial.print(h12);
-  Serial.print(':');
-  if (mm < 10) Serial.print('0');
-  Serial.print(mm);
-  Serial.print(h < 12 ? F(" AM") : F(" PM"));
-}
-
-void logWrite(int8_t idx, bool acked) {   // EEPROM log comes later; print for now
+void logWrite(const DueDose& d, bool acked) {   // EEPROM log comes later; print for now
+  MedRecord r;
   Serial.print(F("[LOG] Container "));
-  Serial.print(records[idx].slot);
-  Serial.print(acked ? F(": acknowledged") : F(": MISSED"));
-  if (timeSet) { Serial.print(F(" at ")); printTime(clockMin); }
+  Serial.print(d.rec + 1);
+  if (recordRead(d.rec, r) == REC_OK) {
+    Serial.print(F(", "));
+    printTime(r.doseMin[d.dose]);
+    Serial.print(F(" dose"));
+  }
+  Serial.print(acked ? F(": acknowledged (button pressed)") : F(": MISSED"));
+  if (clockReady()) { Serial.print(F(" at ")); printTime(clockMin); }
   Serial.println();
 }
 
 // =====================================================================
 // Scanning
 // =====================================================================
-int8_t findRecord(const uint8_t* uid, uint8_t len) {
-  for (uint8_t i = 0; i < RECORD_COUNT; i++) {
-    if (records[i].uidLen == len && memcmp(records[i].uid, uid, len) == 0) return i;
-  }
-  return -1;
-}
-
 void sayScanResult() {
   if (lastResultIdx >= 0) {
-    digitalWrite(PIN_LED_GREEN, HIGH);
-    Serial.print(F("[SAY] Container "));
-    Serial.print(records[lastResultIdx].slot);
-    Serial.print(F(": "));
-    Serial.print(NAMES[lastResultIdx]);
+    bool expired = dateSet && recordExpired(lastRec, today());
+    digitalWrite(expired ? PIN_LED_RED : PIN_LED_GREEN, HIGH);
+    Serial.print(F("[SAY] (track "));
+    Serial.print(lastRec.track);
+    Serial.print(F(") Container "));
+    Serial.print(lastRec.slot);
     Serial.println(F(". Please check the label."));
+    if (expired) Serial.println(F("[SAY] Schedule expired. Ask a caregiver."));
   } else {
     digitalWrite(PIN_LED_RED, HIGH);
     Serial.println(F("[BUZZ] unknown-tag tone"));
@@ -135,7 +115,7 @@ void onTag(const uint8_t* uid, uint8_t len) {
   lastUidLen = len;
   lastScanMs = now;
 
-  lastResultIdx = findRecord(uid, len);
+  lastResultIdx = recordFind(uid, len, &lastRec);   // looks through the EEPROM records
   sayScanResult();
   changeState(SCAN_RESULT);
 }
@@ -144,9 +124,15 @@ void onTag(const uint8_t* uid, uint8_t len) {
 // Clock and reminders
 // =====================================================================
 void announceReminder() {
+  MedRecord r;
   Serial.println(F("[BUZZ] reminder beep"));
-  Serial.print(F("[SAY] Reminder... Container "));
-  Serial.print(records[remindIdx].slot);
+  Serial.print(F("[SAY] Reminder: please check your medicine schedule. Container "));
+  Serial.print(cur.rec + 1);
+  if (recordRead(cur.rec, r) == REC_OK) {
+    Serial.print(F(", "));
+    printTime(r.doseMin[cur.dose]);
+    Serial.print(F(" dose"));
+  }
   Serial.print(F(".  (announcement "));
   Serial.print(remindCount);
   Serial.print(F(" of "));
@@ -154,25 +140,28 @@ void announceReminder() {
   Serial.println(F(")"));
 }
 
-void startReminder(int8_t idx) {
-  remindIdx = idx;
+void startReminder(const DueDose& d) {
+  cur = d;
   remindCount = 1;
   lastRemindMs = millis();
   changeState(REMINDING);
   announceReminder();
 }
 
+// Once a minute: ask the scheduler what is due and put it in the waiting queue.
 void checkDoses() {
-  if (clockMin == lastCheckedMin) return;   // each minute is checked once
+  if (!clockReady()) return;                 // "time not set": no reminders at all
+  if (clockMin == lastCheckedMin) return;    // each minute is checked once
   lastCheckedMin = clockMin;
-  for (uint8_t i = 0; i < RECORD_COUNT; i++) {
-    if (records[i].doseMin != clockMin) continue;
-    if (state == IDLE || state == SCAN_RESULT) {
-      startReminder(i);
-    } else {
-      pendingIdx = i;                        // simple one-slot queue for now
-      Serial.println(F("[INFO] Dose due while busy: queued"));
-    }
+  DueDose due[QUEUE_SIZE];
+  uint8_t n = schedCollectDue(today(), clockMin, due, QUEUE_SIZE - queueCount());
+  for (uint8_t k = 0; k < n; k++) {
+    queuePush(due[k]);
+    Serial.print(F("[INFO] Due: container "));
+    Serial.print(due[k].rec + 1);
+    Serial.print(F("  ("));
+    Serial.print(queueCount());
+    Serial.println(F(" waiting)"));
   }
 }
 
@@ -180,38 +169,53 @@ void clockUpdate() {
   if (!timeSet) return;
   if (millis() - lastMinuteMs >= 60000UL) {
     lastMinuteMs += 60000UL;
-    clockMin = (clockMin + 1) % 1440;
-    checkDoses();
+    clockMin++;
+    if (clockMin >= 1440) {                  // midnight
+      clockMin = 0;
+      schedNewDay();
+      if (dateSet) {
+        nextDay(dateY, dateM, dateD);
+        Serial.print(F("[INFO] New day: "));
+        printDate(dateY, dateM, dateD);
+        Serial.println();
+      }
+    }
   }
 }
 
 void sayTimeAndNext() {
-  if (!timeSet) {
-    Serial.println(F("[SAY] Time not set."));
+  if (!clockReady()) {
+    Serial.println(F("[SAY] Time not set. Ask a caregiver."));
     return;
   }
   Serial.print(F("[SAY] The time is "));
   printTime(clockMin);
   Serial.println('.');
 
-  int8_t best = -1;
-  uint16_t bestDiff = 0;
-  for (uint8_t i = 0; i < RECORD_COUNT; i++) {
-    uint16_t diff = (records[i].doseMin + 1440 - clockMin) % 1440;
-    if (diff == 0) diff = 1440;              // due now counts as tomorrow's
-    if (best < 0 || diff < bestDiff) { best = i; bestDiff = diff; }
+  int8_t bestRec = -1;
+  uint16_t bestMin = 0, bestDiff = 0;
+  MedRecord r;
+  for (uint8_t i = 0; i < MAX_RECORDS; i++) {
+    if (recordRead(i, r) != REC_OK || recordExpired(r, today())) continue;
+    for (uint8_t d = 0; d < r.doseCount; d++) {
+      uint16_t diff = (r.doseMin[d] + 1440 - clockMin) % 1440;
+      if (diff == 0) diff = 1440;            // due now counts as tomorrow's
+      if (bestRec < 0 || diff < bestDiff) { bestRec = i; bestMin = r.doseMin[d]; bestDiff = diff; }
+    }
   }
-  if (best >= 0) {
+  if (bestRec >= 0) {
     Serial.print(F("[SAY] Next: container "));
-    Serial.print(records[best].slot);
+    Serial.print(bestRec + 1);
     Serial.print(F(" at "));
-    printTime(records[best].doseMin);
+    printTime(bestMin);
     Serial.println('.');
+  } else {
+    Serial.println(F("[SAY] No medicine is scheduled."));
   }
 }
 
 // =====================================================================
-// Serial commands (fake tag, fake time, fake buttons)
+// Serial commands (fake tag, fake date and time, fake buttons)
 // =====================================================================
 int8_t hexVal(char c) {
   if (c >= '0' && c <= '9') return c - '0';
@@ -237,12 +241,22 @@ uint8_t parseUid(const char* s, uint8_t* out) {
 
 void printHelp() {
   Serial.println(F("Commands:"));
-  Serial.println(F("  tag 04a1b2c3     fake scan (4 or 7 bytes in hex)"));
-  Serial.println(F("  time 19:05       set the fake clock (24-hour)"));
+  Serial.println(F("  tag 04a1b2c3       fake scan (4 or 7 bytes in hex)"));
+  Serial.println(F("  date 2026-11-27    set the fake date"));
+  Serial.println(F("  time 19:05         set the fake clock (24-hour)"));
   Serial.println(F("  ack / repeat / next   fake buttons D6 / D5 / D7"));
-  Serial.println(F("  care / exit      enter / leave caregiver mode (D8 hold)"));
-  Serial.println(F("  state / help"));
-  Serial.println(F("Test tags: 04a1b2c3 (1, 8:00 AM)  04112233445566 (2, 1:30 PM)  deadbeef (3, 7:05 PM)"));
+  Serial.println(F("  care / exit        enter / leave caregiver mode (D8 hold)"));
+  Serial.println(F("  list / state / help"));
+  Serial.println(F("Caregiver mode only: seed (3 demo records), wipe, corrupt N, test"));
+  Serial.println(F("Demo tags: 04a1b2c3 (container 1)  04112233445566 (container 2)  deadbeef (container 3, expired)"));
+}
+
+// After the records change, start the day's bookkeeping again.
+void afterRecordsChanged() {
+  queueClear();
+  if (timeSet) schedClockSet(clockMin);
+  lastCheckedMin = 0xFFFF;
+  lastResultIdx = -2;
 }
 
 void handleCommand(char* cmd) {
@@ -263,17 +277,36 @@ void handleCommand(char* cmd) {
     clockMin = h * 60 + m;
     timeSet = true;
     lastMinuteMs = millis();
+    schedClockSet(clockMin);                         // earlier doses today don't fire
     lastCheckedMin = 0xFFFF;                         // check this minute again
     Serial.print(F("[INFO] Clock set to "));
     printTime(clockMin);
     Serial.println();
-    checkDoses();
+    if (!dateSet) Serial.println(F("[INFO] Set the date too: date YYYY-MM-DD"));
+
+  } else if (strncmp(cmd, "date ", 5) == 0) {
+    int y = atoi(cmd + 5);
+    const char* d1 = strchr(cmd + 5, '-');
+    const char* d2 = d1 ? strchr(d1 + 1, '-') : 0;
+    int m = d1 ? atoi(d1 + 1) : 0;
+    int d = d2 ? atoi(d2 + 1) : 0;
+    if (y < 2000 || y > 2099 || !dateValid(y - 2000, m, d)) {
+      Serial.println(F("[ERR] Use date YYYY-MM-DD, e.g. date 2026-11-27"));
+      return;
+    }
+    dateY = y - 2000; dateM = m; dateD = d;
+    dateSet = true;
+    if (timeSet) schedClockSet(clockMin);
+    lastCheckedMin = 0xFFFF;
+    Serial.print(F("[INFO] Date set to "));
+    printDate(dateY, dateM, dateD);
+    Serial.println();
+    if (!timeSet) Serial.println(F("[INFO] Set the time too: time HH:MM"));
 
   } else if (strcmp(cmd, "ack") == 0) {
     if (state == REMINDING) {
-      logWrite(remindIdx, true);
-      Serial.println(F("[SAY] Noted."));
-      remindIdx = -1;
+      logWrite(cur, true);
+      Serial.println(F("[SAY] Reminder acknowledged."));
       changeState(IDLE);
     } else {
       Serial.println(F("[INFO] Nothing to acknowledge"));
@@ -303,12 +336,40 @@ void handleCommand(char* cmd) {
   } else if (strcmp(cmd, "exit") == 0) {
     if (state == CAREGIVER) changeState(IDLE);
 
+  } else if (strcmp(cmd, "list") == 0) {
+    recordsList();
+
+  } else if (strcmp(cmd, "seed") == 0 || strcmp(cmd, "wipe") == 0 ||
+             strncmp(cmd, "corrupt ", 8) == 0 || strcmp(cmd, "test") == 0) {
+    if (state != CAREGIVER) { Serial.println(F("[ERR] Caregiver mode only: type care first")); return; }
+    if (cmd[0] == 's') {
+      recordsFormat();
+      recordsSeedDemo();
+      Serial.println(F("[INFO] 3 demo records loaded"));
+    } else if (cmd[0] == 'w') {
+      recordsFormat();
+      Serial.println(F("[INFO] All records erased"));
+    } else if (cmd[0] == 'c') {
+      int n = atoi(cmd + 8);
+      if (n < 1 || n > MAX_RECORDS) { Serial.println(F("[ERR] Use corrupt 1 to corrupt 10")); return; }
+      recordCorrupt(n - 1);
+      Serial.print(F("[INFO] Container "));
+      Serial.print(n);
+      Serial.println(F(" damaged on purpose. Type seed to repair."));
+    } else {
+      runSelfTest();
+    }
+    afterRecordsChanged();
+
   } else if (strcmp(cmd, "state") == 0) {
     Serial.print(F("[INFO] State: "));
     Serial.print(STATE_NAMES[state]);
+    Serial.print(F("   Date: "));
+    if (dateSet) printDate(dateY, dateM, dateD); else Serial.print(F("not set"));
     Serial.print(F("   Time: "));
     if (timeSet) printTime(clockMin); else Serial.print(F("not set"));
-    Serial.println();
+    Serial.print(F("   Waiting: "));
+    Serial.println(queueCount());
 
   } else if (strcmp(cmd, "help") == 0) {
     printHelp();
@@ -346,32 +407,30 @@ void setup() {
   // Buzzer pin left alone until we know if the module beeps on HIGH or LOW (R9).
 
   stateStartMs = millis();
-  Serial.println(F("Smart Medication Device - skeleton v0.2 (fake inputs)"));
+  Serial.println(F("Smart Medication Device - v0.3 (EEPROM records + scheduler, fake inputs)"));
+  recordsBegin();
   printHelp();
+  Serial.println(F("[SAY] Time not set. Ask a caregiver."));
 }
 
 void loop() {
   serialPoll();
   clockUpdate();
+  checkDoses();
 
   switch (state) {
     case IDLE:
-      if (pendingIdx >= 0) {                  // a dose came due while we were busy
-        int8_t i = pendingIdx;
-        pendingIdx = -1;
-        startReminder(i);
-      }
+    case SCAN_RESULT: {
+      DueDose d;
+      if (queuePop(d)) { startReminder(d); break; }   // a waiting dose comes first
+      if (state == SCAN_RESULT && millis() - stateStartMs >= SCAN_SHOW_MS) changeState(IDLE);
       break;
-
-    case SCAN_RESULT:
-      if (millis() - stateStartMs >= SCAN_SHOW_MS) changeState(IDLE);
-      break;
+    }
 
     case REMINDING:
       if (millis() - lastRemindMs >= REMIND_REPEAT_MS) {
         if (remindCount >= REMIND_MAX) {
-          logWrite(remindIdx, false);
-          remindIdx = -1;
+          logWrite(cur, false);
           changeState(IDLE);
         } else {
           remindCount++;
